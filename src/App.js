@@ -3011,10 +3011,15 @@ export default function MockTestMultiSubject() {
 
   function downloadCSV() {
     const data = generateAnalysisData();
+    console.log("CSV Data:", data); // Debug log
     const headers = [
       "Question Number",
       "Question",
       "Type",
+      "Option A",
+      "Option B",
+      "Option C",
+      "Option D",
       "Your Answer",
       "Correct Answer",
       "Result",
@@ -3026,11 +3031,16 @@ export default function MockTestMultiSubject() {
 
     const csvContent = [
       headers.join(","),
-      ...data.map((row) =>
-        [
+      ...data.map((row) => {
+        console.log("Row options:", row.options); // Debug log
+        return [
           row.questionNumber,
           `"${row.question.replace(/"/g, '""')}"`,
           row.type,
+          `"${(row.options[0] || "").replace(/"/g, '""')}"`,
+          `"${(row.options[1] || "").replace(/"/g, '""')}"`,
+          `"${(row.options[2] || "").replace(/"/g, '""')}"`,
+          `"${(row.options[3] || "").replace(/"/g, '""')}"`,
           `"${row.userAnswer.replace(/"/g, '""')}"`,
           `"${row.correctAnswer.replace(/"/g, '""')}"`,
           row.isCorrect ? "Correct" : "Wrong",
@@ -3038,8 +3048,8 @@ export default function MockTestMultiSubject() {
           row.setNumber,
           row.isBookmarked ? "Yes" : "No",
           `"${row.explanation.replace(/"/g, '""')}"`,
-        ].join(",")
-      ),
+        ].join(",");
+      }),
     ].join("\n");
 
     const blob = new Blob([csvContent], { type: "text/csv" });
@@ -3049,37 +3059,6 @@ export default function MockTestMultiSubject() {
     link.download = `EPFO_${subject}_Set${safeSetIndex + 1}_Analysis_${
       new Date().toISOString().split("T")[0]
     }.csv`;
-    link.click();
-    window.URL.revokeObjectURL(url);
-  }
-
-  function downloadJSON() {
-    const data = generateAnalysisData();
-    const summary = {
-      metadata: {
-        subject,
-        setNumber: safeSetIndex + 1,
-        totalQuestions: currentSet.length,
-        correctAnswers: data.filter((q) => q.isCorrect).length,
-        wrongAnswers: data.filter((q) => !q.isCorrect).length,
-        score: `${data.filter((q) => q.isCorrect).length}/${currentSet.length}`,
-        exportDate: new Date().toISOString(),
-        bookmarkedCount: data.filter((q) => q.isBookmarked).length,
-      },
-      questions: data,
-      wrongAnswersAnalysis: data.filter((q) => !q.isCorrect),
-      correctAnswersAnalysis: data.filter((q) => q.isCorrect),
-      bookmarkedQuestions: data.filter((q) => q.isBookmarked),
-    };
-
-    const jsonContent = JSON.stringify(summary, null, 2);
-    const blob = new Blob([jsonContent], { type: "application/json" });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `EPFO_${subject}_Set${safeSetIndex + 1}_Analysis_${
-      new Date().toISOString().split("T")[0]
-    }.json`;
     link.click();
     window.URL.revokeObjectURL(url);
   }
@@ -3496,20 +3475,14 @@ export default function MockTestMultiSubject() {
                     >
                       📁 Export CSV
                     </button>
-                    <button
-                      onClick={downloadJSON}
-                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                    >
-                      📄 Export JSON
-                    </button>
                   </div>
                   <p
                     className={`text-xs mt-2 transition-colors duration-200 ${
                       isDarkMode ? "text-gray-400" : "text-gray-500"
                     }`}
                   >
-                    Download detailed analysis of correct/wrong answers,
-                    explanations, and bookmarked questions for study review
+                    Download detailed CSV analysis with all options,
+                    correct/wrong answers, and explanations for study review
                   </p>
                 </div>
               </div>
@@ -3638,8 +3611,8 @@ export default function MockTestMultiSubject() {
                   </li>
                   <li>Click ☆ next to questions to manually bookmark them.</li>
                   <li>
-                    After submission, export CSV/JSON for detailed analysis of
-                    right/wrong answers.
+                    After submission, export CSV for detailed analysis with all
+                    options and explanations.
                   </li>
                 </ul>
               </div>
