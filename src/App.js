@@ -2867,6 +2867,20 @@ export default function MockTestMultiSubject() {
   const [answers, setAnswers] = useState({}); // { [subject]: { [qId]: idxOrValue } }
   const [submitted, setSubmitted] = useState({}); // { [subject]: { [setIndex]: true } }
   const [bookmarkedQuestions, setBookmarkedQuestions] = useState({}); // { [subject]: { [qId]: true } }
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    // Check localStorage for saved theme preference
+    const saved = localStorage.getItem("epfo-dark-mode");
+    return saved ? JSON.parse(saved) : false;
+  });
+
+  // Save dark mode preference to localStorage
+  useEffect(() => {
+    localStorage.setItem("epfo-dark-mode", JSON.stringify(isDarkMode));
+  }, [isDarkMode]);
+
+  const toggleDarkMode = () => {
+    setIsDarkMode(!isDarkMode);
+  };
 
   const questions = SUBJECTS[subject] || [];
   const SETS = useMemo(() => chunk(questions, 15), [questions]);
@@ -2954,6 +2968,122 @@ export default function MockTestMultiSubject() {
     });
   }
 
+  function generateAnalysisData() {
+    const analysisData = [];
+
+    currentSet.forEach((q, index) => {
+      const userAnswer = (answers[subject] || {})[q.id];
+      const isCorrect = userAnswer === q.answer;
+      const questionNumber = safeSetIndex * 15 + index + 1;
+
+      // Get the text of user's selected option
+      let userAnswerText = "Not attempted";
+      let correctAnswerText = "";
+
+      if (q.type === "mcq" || !q.type) {
+        if (userAnswer !== undefined) {
+          userAnswerText = q.options[userAnswer] || "Invalid selection";
+        }
+        correctAnswerText = q.options[q.answer] || "Not available";
+      } else if (q.type === "fill") {
+        userAnswerText = userAnswer || "Not attempted";
+        correctAnswerText = q.answer;
+      }
+
+      analysisData.push({
+        questionNumber,
+        question: q.text,
+        type: q.type || "mcq",
+        userAnswer: userAnswerText,
+        correctAnswer: correctAnswerText,
+        isCorrect,
+        subject,
+        setNumber: safeSetIndex + 1,
+        isBookmarked: (bookmarkedQuestions[subject] || {})[q.id] || false,
+        options: q.options || [],
+        explanation: q.explanation || "No explanation available",
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    return analysisData;
+  }
+
+  function downloadCSV() {
+    const data = generateAnalysisData();
+    const headers = [
+      "Question Number",
+      "Question",
+      "Type",
+      "Your Answer",
+      "Correct Answer",
+      "Result",
+      "Subject",
+      "Set Number",
+      "Bookmarked",
+      "Explanation",
+    ];
+
+    const csvContent = [
+      headers.join(","),
+      ...data.map((row) =>
+        [
+          row.questionNumber,
+          `"${row.question.replace(/"/g, '""')}"`,
+          row.type,
+          `"${row.userAnswer.replace(/"/g, '""')}"`,
+          `"${row.correctAnswer.replace(/"/g, '""')}"`,
+          row.isCorrect ? "Correct" : "Wrong",
+          row.subject,
+          row.setNumber,
+          row.isBookmarked ? "Yes" : "No",
+          `"${row.explanation.replace(/"/g, '""')}"`,
+        ].join(",")
+      ),
+    ].join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `EPFO_${subject}_Set${safeSetIndex + 1}_Analysis_${
+      new Date().toISOString().split("T")[0]
+    }.csv`;
+    link.click();
+    window.URL.revokeObjectURL(url);
+  }
+
+  function downloadJSON() {
+    const data = generateAnalysisData();
+    const summary = {
+      metadata: {
+        subject,
+        setNumber: safeSetIndex + 1,
+        totalQuestions: currentSet.length,
+        correctAnswers: data.filter((q) => q.isCorrect).length,
+        wrongAnswers: data.filter((q) => !q.isCorrect).length,
+        score: `${data.filter((q) => q.isCorrect).length}/${currentSet.length}`,
+        exportDate: new Date().toISOString(),
+        bookmarkedCount: data.filter((q) => q.isBookmarked).length,
+      },
+      questions: data,
+      wrongAnswersAnalysis: data.filter((q) => !q.isCorrect),
+      correctAnswersAnalysis: data.filter((q) => q.isCorrect),
+      bookmarkedQuestions: data.filter((q) => q.isBookmarked),
+    };
+
+    const jsonContent = JSON.stringify(summary, null, 2);
+    const blob = new Blob([jsonContent], { type: "application/json" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `EPFO_${subject}_Set${safeSetIndex + 1}_Analysis_${
+      new Date().toISOString().split("T")[0]
+    }.json`;
+    link.click();
+    window.URL.revokeObjectURL(url);
+  }
+
   function scoreCurrentSet() {
     let s = 0;
     for (const q of currentSet) {
@@ -2973,8 +3103,16 @@ export default function MockTestMultiSubject() {
   ).length;
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto bg-white shadow-lg rounded-2xl overflow-hidden">
+    <div
+      className={`min-h-screen p-4 md:p-8 transition-colors duration-300 ${
+        isDarkMode ? "bg-gray-900" : "bg-gray-50"
+      }`}
+    >
+      <div
+        className={`max-w-7xl mx-auto shadow-lg rounded-2xl overflow-hidden transition-colors duration-300 ${
+          isDarkMode ? "bg-gray-800" : "bg-white"
+        }`}
+      >
         {/* Header with subject badge */}
         <header
           className={`p-6 text-white bg-gradient-to-r ${
@@ -2992,13 +3130,29 @@ export default function MockTestMultiSubject() {
               </p>
             </div>
             <div className="flex items-center gap-3">
+              <button
+                onClick={toggleDarkMode}
+                className="px-3 py-2 rounded-lg bg-white/20 hover:bg-white/30 transition-colors duration-200 flex items-center gap-2"
+                title={
+                  isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"
+                }
+              >
+                <span className="text-lg">{isDarkMode ? "☀️" : "🌙"}</span>
+                <span className="hidden sm:inline text-sm">
+                  {isDarkMode ? "Light" : "Dark"}
+                </span>
+              </button>
               <span className="px-3 py-1 rounded-full bg-white/20 font-semibold">
                 Current: <span className="underline">{subject}</span>
               </span>
               <select
                 value={subject}
                 onChange={handleSubjectChange}
-                className="px-3 py-2 rounded-lg text-gray-800"
+                className={`px-3 py-2 rounded-lg transition-colors duration-200 ${
+                  isDarkMode
+                    ? "bg-gray-700 text-gray-200 border border-gray-600"
+                    : "bg-white text-gray-800 border border-gray-300"
+                }`}
               >
                 {subjectNames.map((n) => (
                   <option key={n} value={n}>
@@ -3024,10 +3178,12 @@ export default function MockTestMultiSubject() {
                   <button
                     key={i}
                     onClick={() => _setIndex(i)}
-                    className={`px-3 py-2 rounded-full border text-sm ${
+                    className={`px-3 py-2 rounded-full border text-sm transition-colors duration-200 ${
                       isActive
                         ? "bg-indigo-600 text-white border-indigo-600"
-                        : "bg-gray-50"
+                        : isDarkMode
+                        ? "bg-gray-700 text-gray-200 border-gray-600 hover:bg-gray-600"
+                        : "bg-gray-50 text-gray-800 border-gray-300 hover:bg-gray-100"
                     }`}
                   >
                     Set {i + 1}{" "}
@@ -3041,12 +3197,23 @@ export default function MockTestMultiSubject() {
 
             {/* Summary Row */}
             <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-              <div className="text-sm text-gray-600">
+              <div
+                className={`text-sm transition-colors duration-200 ${
+                  isDarkMode ? "text-gray-300" : "text-gray-600"
+                }`}
+              >
                 Questions in this set: <strong>{currentSet.length}</strong> |
                 Answered: <strong>{totalAnsweredInSet}</strong>
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={resetSet} className="px-3 py-2 rounded border">
+                <button
+                  onClick={resetSet}
+                  className={`px-3 py-2 rounded border transition-colors duration-200 ${
+                    isDarkMode
+                      ? "bg-gray-700 text-gray-200 border-gray-600 hover:bg-gray-600"
+                      : "bg-white text-gray-800 border-gray-300 hover:bg-gray-50"
+                  }`}
+                >
                   Reset Set
                 </button>
               </div>
@@ -3061,8 +3228,19 @@ export default function MockTestMultiSubject() {
                     ? given === q.answer
                     : given === q.answer;
                 return (
-                  <div key={q.id} className="p-4 rounded-lg border bg-gray-50">
-                    <div className="mb-3 font-medium text-gray-900 flex items-center justify-between">
+                  <div
+                    key={q.id}
+                    className={`p-4 rounded-lg border transition-colors duration-200 ${
+                      isDarkMode
+                        ? "bg-gray-700 border-gray-600"
+                        : "bg-gray-50 border-gray-200"
+                    }`}
+                  >
+                    <div
+                      className={`mb-3 font-medium flex items-center justify-between transition-colors duration-200 ${
+                        isDarkMode ? "text-gray-100" : "text-gray-900"
+                      }`}
+                    >
                       <span>
                         {safeSetIndex * 15 + qi + 1}. {q.text}
                       </span>
@@ -3096,14 +3274,18 @@ export default function MockTestMultiSubject() {
                           return (
                             <label
                               key={i}
-                              className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer border ${
+                              className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer border transition-colors duration-200 ${
                                 wrongSelected
                                   ? "bg-red-50 border-red-300"
                                   : correctOption
                                   ? "bg-green-50 border-green-300"
                                   : selected
-                                  ? "bg-indigo-50 border-indigo-300"
-                                  : "bg-white border-gray-200"
+                                  ? isDarkMode
+                                    ? "bg-indigo-900 border-indigo-700"
+                                    : "bg-indigo-50 border-indigo-300"
+                                  : isDarkMode
+                                  ? "bg-gray-800 border-gray-600 hover:bg-gray-700"
+                                  : "bg-white border-gray-200 hover:bg-gray-50"
                               }`}
                             >
                               <input
@@ -3114,11 +3296,17 @@ export default function MockTestMultiSubject() {
                                 disabled={false}
                               />
                               <span
-                                className={`${
+                                className={`transition-colors duration-200 ${
                                   wrongSelected
                                     ? "text-red-700 font-medium"
                                     : correctOption
                                     ? "text-green-700 font-medium"
+                                    : selected
+                                    ? isDarkMode
+                                      ? "text-indigo-200 font-medium"
+                                      : "text-indigo-700 font-medium"
+                                    : isDarkMode
+                                    ? "text-gray-200"
                                     : "text-gray-800"
                                 }`}
                               >
@@ -3153,14 +3341,18 @@ export default function MockTestMultiSubject() {
                             <button
                               key={i}
                               onClick={() => markAnswer(q.id, opt)}
-                              className={`p-3 rounded-lg border text-left ${
+                              className={`p-3 rounded-lg border text-left transition-colors duration-200 ${
                                 wrongSelected
                                   ? "bg-red-50 border-red-300 text-red-700 font-medium"
                                   : correctOption
                                   ? "bg-green-50 border-green-300 text-green-700 font-medium"
                                   : selected
-                                  ? "bg-indigo-50 border-indigo-300 text-indigo-700"
-                                  : "bg-white border-gray-200 text-gray-800"
+                                  ? isDarkMode
+                                    ? "bg-indigo-900 border-indigo-700 text-indigo-200 font-medium"
+                                    : "bg-indigo-50 border-indigo-300 text-indigo-700 font-medium"
+                                  : isDarkMode
+                                  ? "bg-gray-800 border-gray-600 text-gray-200 hover:bg-gray-700"
+                                  : "bg-white border-gray-200 text-gray-800 hover:bg-gray-50"
                               }`}
                             >
                               {opt}
@@ -3182,7 +3374,13 @@ export default function MockTestMultiSubject() {
 
                     {/* Feedback after submit */}
                     {isSubmitted && (
-                      <div className="mt-3 p-3 bg-white rounded border text-sm">
+                      <div
+                        className={`mt-3 p-3 rounded border text-sm transition-colors duration-200 ${
+                          isDarkMode
+                            ? "bg-gray-800 border-gray-600 text-gray-200"
+                            : "bg-white border-gray-200 text-gray-800"
+                        }`}
+                      >
                         <div>
                           <strong>Correct Answer:</strong>{" "}
                           {q.type === "mcq" ? q.options[q.answer] : q.answer}
@@ -3190,7 +3388,13 @@ export default function MockTestMultiSubject() {
                         <div className="mt-1">
                           <strong>Your Answer:</strong>{" "}
                           {given === undefined ? (
-                            <em className="text-gray-400">Not answered</em>
+                            <em
+                              className={`transition-colors duration-200 ${
+                                isDarkMode ? "text-gray-500" : "text-gray-400"
+                              }`}
+                            >
+                              Not answered
+                            </em>
                           ) : q.type === "mcq" ? (
                             q.options[given]
                           ) : (
@@ -3214,7 +3418,13 @@ export default function MockTestMultiSubject() {
 
               {/* Empty-set message */}
               {currentSet.length === 0 && (
-                <div className="p-6 rounded-lg border bg-yellow-50 text-yellow-900">
+                <div
+                  className={`p-6 rounded-lg border transition-colors duration-200 ${
+                    isDarkMode
+                      ? "bg-yellow-900 border-yellow-700 text-yellow-200"
+                      : "bg-yellow-50 border-yellow-200 text-yellow-900"
+                  }`}
+                >
                   No questions in this subject yet. Choose another subject from
                   the dropdown.
                 </div>
@@ -3235,16 +3445,73 @@ export default function MockTestMultiSubject() {
 
             {/* Result Card */}
             {isSubmitted && (
-              <div className="mt-6 p-4 bg-gradient-to-r from-green-50 to-white rounded-lg border">
-                <h3 className="text-lg font-semibold">Set Result</h3>
-                <p className="mt-1">
+              <div
+                className={`mt-6 p-4 rounded-lg border transition-colors duration-200 ${
+                  isDarkMode
+                    ? "bg-gradient-to-r from-green-900 to-gray-800 border-gray-600"
+                    : "bg-gradient-to-r from-green-50 to-white border-gray-200"
+                }`}
+              >
+                <h3
+                  className={`text-lg font-semibold transition-colors duration-200 ${
+                    isDarkMode ? "text-gray-100" : "text-gray-900"
+                  }`}
+                >
+                  Set Result
+                </h3>
+                <p
+                  className={`mt-1 transition-colors duration-200 ${
+                    isDarkMode ? "text-gray-200" : "text-gray-800"
+                  }`}
+                >
                   Score: <strong>{scoreCurrentSet()}</strong> /{" "}
                   {currentSet.length}
                 </p>
-                <p className="text-sm text-gray-600">
+                <p
+                  className={`text-sm mb-4 transition-colors duration-200 ${
+                    isDarkMode ? "text-gray-300" : "text-gray-600"
+                  }`}
+                >
                   Review the answers above. You can switch sets anytime using
                   the buttons at the top.
                 </p>
+
+                {/* Export Analysis Buttons */}
+                <div
+                  className={`border-t pt-4 transition-colors duration-200 ${
+                    isDarkMode ? "border-gray-600" : "border-gray-200"
+                  }`}
+                >
+                  <h4
+                    className={`font-medium mb-3 transition-colors duration-200 ${
+                      isDarkMode ? "text-gray-100" : "text-gray-900"
+                    }`}
+                  >
+                    📊 Export Analysis
+                  </h4>
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      onClick={downloadCSV}
+                      className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
+                    >
+                      📁 Export CSV
+                    </button>
+                    <button
+                      onClick={downloadJSON}
+                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                    >
+                      📄 Export JSON
+                    </button>
+                  </div>
+                  <p
+                    className={`text-xs mt-2 transition-colors duration-200 ${
+                      isDarkMode ? "text-gray-400" : "text-gray-500"
+                    }`}
+                  >
+                    Download detailed analysis of correct/wrong answers,
+                    explanations, and bookmarked questions for study review
+                  </p>
+                </div>
               </div>
             )}
           </section>
@@ -3252,35 +3519,63 @@ export default function MockTestMultiSubject() {
           {/* Right — Panel */}
           <aside className="md:col-span-1">
             <div className="sticky top-6 space-y-4">
-              <div className="p-4 rounded-lg border bg-white">
-                <h4 className="font-medium">Set Navigation</h4>
+              <div
+                className={`p-4 rounded-lg border transition-colors duration-200 ${
+                  isDarkMode
+                    ? "bg-gray-800 border-gray-600"
+                    : "bg-white border-gray-200"
+                }`}
+              >
+                <h4
+                  className={`font-medium transition-colors duration-200 ${
+                    isDarkMode ? "text-gray-100" : "text-gray-900"
+                  }`}
+                >
+                  Set Navigation
+                </h4>
                 <div className="mt-3 grid grid-cols-4 gap-2">
                   {[...Array(totalSets)].map((_, i) => (
                     <button
                       key={i}
                       onClick={() => _setIndex(i)}
-                      className={`text-xs p-2 rounded ${
+                      className={`text-xs p-2 rounded transition-colors duration-200 ${
                         i === safeSetIndex
                           ? "bg-indigo-600 text-white"
-                          : "bg-gray-100"
+                          : isDarkMode
+                          ? "bg-gray-700 text-gray-200 hover:bg-gray-600"
+                          : "bg-gray-100 text-gray-800 hover:bg-gray-200"
                       }`}
                     >
                       {i + 1}
                     </button>
                   ))}
                 </div>
-                <div className="mt-3 text-sm text-gray-600">
+                <div
+                  className={`mt-3 text-sm transition-colors duration-200 ${
+                    isDarkMode ? "text-gray-300" : "text-gray-600"
+                  }`}
+                >
                   Sets: <strong>{totalSets}</strong>
                 </div>
               </div>
 
               {/* Bookmarked Questions */}
               {Object.keys(bookmarkedQuestions[subject] || {}).length > 0 && (
-                <div className="p-4 rounded-lg border bg-white">
+                <div
+                  className={`p-4 rounded-lg border transition-colors duration-200 ${
+                    isDarkMode
+                      ? "bg-gray-800 border-gray-600"
+                      : "bg-white border-gray-200"
+                  }`}
+                >
                   <h4 className="font-medium text-yellow-700">
                     ★ Bookmarked Questions
                   </h4>
-                  <div className="mt-3 text-sm text-gray-600">
+                  <div
+                    className={`mt-3 text-sm transition-colors duration-200 ${
+                      isDarkMode ? "text-gray-300" : "text-gray-600"
+                    }`}
+                  >
                     <p className="mb-2">
                       Questions you got wrong (auto-bookmarked):
                     </p>
@@ -3305,9 +3600,25 @@ export default function MockTestMultiSubject() {
                 </div>
               )}
 
-              <div className="p-4 rounded-lg border bg-white text-sm">
-                <h4 className="font-medium">Tips</h4>
-                <ul className="mt-2 list-disc pl-4 text-gray-600">
+              <div
+                className={`p-4 rounded-lg border text-sm transition-colors duration-200 ${
+                  isDarkMode
+                    ? "bg-gray-800 border-gray-600"
+                    : "bg-white border-gray-200"
+                }`}
+              >
+                <h4
+                  className={`font-medium transition-colors duration-200 ${
+                    isDarkMode ? "text-gray-100" : "text-gray-900"
+                  }`}
+                >
+                  Tips
+                </h4>
+                <ul
+                  className={`mt-2 list-disc pl-4 transition-colors duration-200 ${
+                    isDarkMode ? "text-gray-300" : "text-gray-600"
+                  }`}
+                >
                   <li>Select a subject from the dropdown in the header.</li>
                   <li>
                     Each set has 15 questions with Submit button at the end.
@@ -3326,13 +3637,21 @@ export default function MockTestMultiSubject() {
                     <span className="text-yellow-600 font-semibold">★</span>.
                   </li>
                   <li>Click ☆ next to questions to manually bookmark them.</li>
+                  <li>
+                    After submission, export CSV/JSON for detailed analysis of
+                    right/wrong answers.
+                  </li>
                 </ul>
               </div>
             </div>
           </aside>
         </main>
 
-        <footer className="p-4 text-center text-sm text-gray-500">
+        <footer
+          className={`p-4 text-center text-sm transition-colors duration-200 ${
+            isDarkMode ? "text-gray-400" : "text-gray-500"
+          }`}
+        >
           Phrasal Verbs subject contains all 90 questions • Designed for UPSC
           EPFO practice.
         </footer>
